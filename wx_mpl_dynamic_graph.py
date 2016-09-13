@@ -278,7 +278,7 @@ class GraphFrame(wx.Frame):
             defaultDir=os.getcwd(),
             defaultFile="plot.png",
             wildcard=file_choices,
-            style=wx.SAVE)
+            style=wx.FD_SAVE)
         
         if dlg.ShowModal() == wx.ID_OK:
             path = dlg.GetPath()
