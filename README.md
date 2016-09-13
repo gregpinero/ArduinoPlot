@@ -16,11 +16,8 @@ $ python wx_mpl_dynamic_graph.py
 
 ## Requirements
 
-Install the following packages to run `Arduino Plot`:
+Install required [`wxPython Project Phoenix`](https://github.com/wxWidgets/Phoenix) system dependencies and than Python packages from `requirements.txt` file:
 
-* Python 2.6 (2.5 should probably work too)
-* pyserial
-* wx
-* matplotlib
-* numpy
-* pylab
+````bash
+$ pip install -r requirements.txt
+````
