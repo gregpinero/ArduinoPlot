@@ -1,6 +1,11 @@
 cycler==0.10.0
 matplotlib==1.5.3
+mccabe==0.5.2
 numpy==1.11.1
+pep8==1.7.0
+pydocstyle==1.0.0
+pyflakes==1.3.0
+pylama==7.1.0
 pyparsing==2.1.9
 pyserial==3.1.1
 python-dateutil==2.5.3
