@@ -1,8 +1,4 @@
 """
-GP:
-Changed datasource, title, and refresh interval to use as a poor man's Arduino
-oscilliscope.
-
 This demo demonstrates how to draw a dynamic matplotlib plot in a wxPython
 application.
 
@@ -14,10 +10,6 @@ graph "follow" the data. Set it X min to manual 0 to always see the whole data
 from the beginning.
 
 Note: press Enter in the 'manual' text box to make a new value affect the plot.
-
-Eli Bendersky (eliben@gmail.com)
-License: this code is in the public domain
-Last modified: 31.07.2008
 """
 import os
 import wx
@@ -26,7 +18,7 @@ import numpy as np
 import matplotlib
 from matplotlib.figure import Figure
 
-from Arduino_Monitor import SerialData as DataGen
+from Arduino_Monitor import SerialData
 
 # The recommended way to use wx with mpl is with the WXAgg backend.
 matplotlib.use('WXAgg')
@@ -37,6 +29,7 @@ import matplotlib.pyplot as plt  # noqa
 
 
 REFRESH_INTERVAL_MS = 90
+DPI = 100
 
 
 class BoundControlBox(wx.Panel):
@@ -44,57 +37,66 @@ class BoundControlBox(wx.Panel):
     A static box with a couple of radio buttons and a text box. Allows to
     switch between an automatic mode and a manual mode with an associated value.
     """
-    def __init__(self, parent, ID, label, initval):
-        wx.Panel.__init__(self, parent, ID)
+    def __init__(self, parent, label, initial_value):
+        wx.Panel.__init__(self, parent)
 
-        self.value = initval
+        self._value = initial_value
 
-        box = wx.StaticBox(self, -1, label)
+        box = wx.StaticBox(self, label=label)
         sizer = wx.StaticBoxSizer(box, wx.VERTICAL)
 
-        self.radio_auto = wx.RadioButton(
-            self, -1,
-            label="Auto", style=wx.RB_GROUP
+        self.auto_radio_button = wx.RadioButton(
+            self, label="Auto", style=wx.RB_GROUP
         )
-        self.radio_manual = wx.RadioButton(
-            self, -1,
-            label="Manual"
+
+        self.manual_radio_button = wx.RadioButton(
+            self, label="Manual"
         )
-        self.manual_text = wx.TextCtrl(
-            self, -1,
+
+        self.textbox = wx.TextCtrl(
+            self,
             size=(35, -1),
-            value=str(initval),
+            value=str(self.value),
             style=wx.TE_PROCESS_ENTER
         )
 
         self.Bind(
             wx.EVT_UPDATE_UI,
-            self.on_update_manual_text,
-            self.manual_text
+            self.on_radio_button_checked,
+            self.textbox
         )
-        self.Bind(wx.EVT_TEXT_ENTER, self.on_text_enter, self.manual_text)
+
+        self.Bind(
+            wx.EVT_TEXT_ENTER,
+            self.on_text_enter,
+            self.textbox
+        )
 
         manual_box = wx.BoxSizer(wx.HORIZONTAL)
-        manual_box.Add(self.radio_manual, flag=wx.ALIGN_CENTER_VERTICAL)
-        manual_box.Add(self.manual_text, flag=wx.ALIGN_CENTER_VERTICAL)
+        manual_box.Add(
+            self.manual_radio_button,
+            flag=wx.ALIGN_CENTER_VERTICAL
+        )
+        manual_box.Add(self.textbox, flag=wx.ALIGN_CENTER_VERTICAL)
 
-        sizer.Add(self.radio_auto, 0, wx.ALL, 10)
+        sizer.Add(self.auto_radio_button, 0, wx.ALL, 10)
         sizer.Add(manual_box, 0, wx.ALL, 10)
 
         self.SetSizer(sizer)
         sizer.Fit(self)
 
-    def on_update_manual_text(self, event):
-        self.manual_text.Enable(self.radio_manual.GetValue())
+    @property
+    def value(self):
+        return self._value
+
+    def on_radio_button_checked(self, event):
+        self.textbox.Enable(not self.is_auto())
 
     def on_text_enter(self, event):
-        self.value = self.manual_text.GetValue()
+        self._value = self.textbox.GetValue()
 
     def is_auto(self):
-        return self.radio_auto.GetValue()
-
-    def manual_value(self):
-        return self.value
+        return self.auto_radio_button.GetValue()
 
 
 class GraphFrame(wx.Frame):
@@ -105,8 +107,8 @@ class GraphFrame(wx.Frame):
     def __init__(self):
         wx.Frame.__init__(self, None, -1, self.title)
 
-        self.datagen = DataGen()
-        self.data = [self.datagen.next()]
+        self.data_source = SerialData()
+        self.data = [self.data_source.next()]
         self.paused = False
 
         self.create_menu()
@@ -114,58 +116,74 @@ class GraphFrame(wx.Frame):
         self.create_main_panel()
 
         self.redraw_timer = wx.Timer(self)
-        self.Bind(wx.EVT_TIMER, self.on_redraw_timer, self.redraw_timer)
+        self.Bind(wx.EVT_TIMER, self.on_plot_redraw, self.redraw_timer)
         self.redraw_timer.Start(REFRESH_INTERVAL_MS)
 
     def create_menu(self):
-        self.menubar = wx.MenuBar()
+        self.menu_bar = wx.MenuBar()
+        menu = wx.Menu()
 
-        menu_file = wx.Menu()
-        m_expt = menu_file.Append(-1, "&Save plot\tCtrl-S", "Save plot to file")
-        self.Bind(wx.EVT_MENU, self.on_save_plot, m_expt)
-        menu_file.AppendSeparator()
-        m_exit = menu_file.Append(-1, "E&xit\tCtrl-X", "Exit")
-        self.Bind(wx.EVT_MENU, self.on_exit, m_exit)
+        save_plot_entry = menu.Append(
+            id=-1,
+            item="&Save plot\tCtrl-S",
+            helpString="Save plot to file"
+        )
+        self.Bind(wx.EVT_MENU, self.on_plot_save, save_plot_entry)
 
-        self.menubar.Append(menu_file, "&File")
-        self.SetMenuBar(self.menubar)
+        menu.AppendSeparator()
+
+        exit_entry = menu.Append(
+            id=-1,
+            item="E&xit\tCtrl-X",
+            helpString="Exit"
+        )
+        self.Bind(wx.EVT_MENU, self.on_exit, exit_entry)
+
+        self.menu_bar.Append(menu, "&File")
+        self.SetMenuBar(self.menu_bar)
 
     def create_main_panel(self):
         self.panel = wx.Panel(self)
 
-        self.init_plot()
-        self.canvas = FigCanvas(self.panel, -1, self.fig)
+        self.plot_initialize()
+        self.canvas = FigCanvas(self.panel, -1, self.figure)
 
-        self.xmin_control = BoundControlBox(self.panel, -1, "X min", 0)
-        self.xmax_control = BoundControlBox(self.panel, -1, "X max", 50)
-        self.ymin_control = BoundControlBox(self.panel, -1, "Y min", 0)
-        self.ymax_control = BoundControlBox(
-            self.panel, -1, "Y max", 100
-        )
+        self.xmin_control_box = BoundControlBox(self.panel, "X min", 0)
+        self.xmax_control_box = BoundControlBox(self.panel, "X max", 50)
+        self.ymin_control_box = BoundControlBox(self.panel, "Y min", 0)
+        self.ymax_control_box = BoundControlBox(self.panel, "Y max", 100)
 
         self.pause_button = wx.Button(self.panel, -1, "Pause")
-        self.Bind(wx.EVT_BUTTON, self.on_pause_button, self.pause_button)
+        self.Bind(wx.EVT_BUTTON, self.on_pause_button_click, self.pause_button)
         self.Bind(
             wx.EVT_UPDATE_UI,
-            self.on_update_pause_button,
+            self.on_pause_button_update,
             self.pause_button
         )
 
-        self.cb_grid = wx.CheckBox(
+        self.grid_visibility_check_box = wx.CheckBox(
             self.panel, -1,
             "Show Grid",
             style=wx.ALIGN_RIGHT
         )
-        self.Bind(wx.EVT_CHECKBOX, self.on_cb_grid, self.cb_grid)
-        self.cb_grid.SetValue(True)
+        self.Bind(
+            wx.EVT_CHECKBOX,
+            self.on_grid_visibility_control_box_toggle,
+            self.grid_visibility_check_box
+        )
+        self.grid_visibility_check_box.SetValue(True)
 
-        self.cb_xlab = wx.CheckBox(
+        self.xlabels_visibility_check_box = wx.CheckBox(
             self.panel, -1,
             "Show X labels",
             style=wx.ALIGN_RIGHT
         )
-        self.Bind(wx.EVT_CHECKBOX, self.on_cb_xlab, self.cb_xlab)
-        self.cb_xlab.SetValue(True)
+        self.Bind(
+            wx.EVT_CHECKBOX,
+            self.on_xlabels_visibility_check_box_toggle,
+            self.xlabels_visibility_check_box
+        )
+        self.xlabels_visibility_check_box.SetValue(True)
 
         self.hbox1 = wx.BoxSizer(wx.HORIZONTAL)
         self.hbox1.Add(
@@ -175,23 +193,23 @@ class GraphFrame(wx.Frame):
         )
         self.hbox1.AddSpacer(20)
         self.hbox1.Add(
-            self.cb_grid,
+            self.grid_visibility_check_box,
             border=5,
             flag=wx.ALL | wx.ALIGN_CENTER_VERTICAL
         )
         self.hbox1.AddSpacer(10)
         self.hbox1.Add(
-            self.cb_xlab,
+            self.xlabels_visibility_check_box,
             border=5,
             flag=wx.ALL | wx.ALIGN_CENTER_VERTICAL
         )
 
         self.hbox2 = wx.BoxSizer(wx.HORIZONTAL)
-        self.hbox2.Add(self.xmin_control, border=5, flag=wx.ALL)
-        self.hbox2.Add(self.xmax_control, border=5, flag=wx.ALL)
+        self.hbox2.Add(self.xmin_control_box, border=5, flag=wx.ALL)
+        self.hbox2.Add(self.xmax_control_box, border=5, flag=wx.ALL)
         self.hbox2.AddSpacer(24)
-        self.hbox2.Add(self.ymin_control, border=5, flag=wx.ALL)
-        self.hbox2.Add(self.ymax_control, border=5, flag=wx.ALL)
+        self.hbox2.Add(self.ymin_control_box, border=5, flag=wx.ALL)
+        self.hbox2.Add(self.ymax_control_box, border=5, flag=wx.ALL)
 
         self.vbox = wx.BoxSizer(wx.VERTICAL)
         self.vbox.Add(self.canvas, 1, flag=wx.LEFT | wx.TOP | wx.GROW)
@@ -202,82 +220,71 @@ class GraphFrame(wx.Frame):
         self.vbox.Fit(self)
 
     def create_status_bar(self):
-        self.statusbar = self.CreateStatusBar()
+        self.status_bar = self.CreateStatusBar()
 
-    def init_plot(self):
-        self.dpi = 100
-        self.fig = Figure((3.0, 3.0), dpi=self.dpi)
+    def plot_initialize(self):
 
-        self.axes = self.fig.add_subplot(111)
+        self.figure = Figure((3.0, 3.0), dpi=DPI)
+
+        self.axes = self.figure.add_subplot(111)
         self.axes.set_axis_bgcolor('black')
         self.axes.set_title('Arduino Serial Data', size=12)
+        self.axes.grid(color='grey')
 
         plt.setp(self.axes.get_xticklabels(), fontsize=8)
         plt.setp(self.axes.get_yticklabels(), fontsize=8)
 
-        # plot the data as a line series, and save the reference
-        # to the plotted line series
-        #
+        # Plot the data and save the reference to the plotted line
         self.plot_data = self.axes.plot(
-            self.data,
-            linewidth=1,
-            color=(1, 1, 0),
-            )[0]
+            self.data, linewidth=1, color=(1, 1, 0),
+        )[0]
+
+    def get_plot_xrange(self):
+        """
+        Return minimal and maximal values of plot -xaxis range to be displayed.
+
+        Values of *x_min* and *x_max* by default are determined to show sliding
+        window of last 50 elements of data set and they can be manually set.
+        """
+        x_max = max(len(self.data), 50) if self.xmax_control_box.is_auto() \
+            else int(self.xmax_control_box.value)
+
+        x_min = x_max - 50 if self.xmin_control_box.is_auto() \
+            else int(self.xmin_control_box.value)
+
+        return x_min, x_max
+
+    def get_plot_yrange(self):
+        """
+        Return minimal and maximal values of plot y-axis range to be displayed.
+
+        Values of *y_min* and *y_max* are determined by finding minimal and
+        maximal values of the data set and adding minimal necessary margin.
+
+        """
+        y_min = round(min(self.data)) - 1 if self.ymin_control_box.is_auto() \
+            else int(self.ymin_control_box.value)
+
+        y_max = round(max(self.data)) + 1 if self.ymax_control_box.is_auto() \
+            else int(self.ymax_control_box.value)
+
+        return y_min, y_max
 
     def draw_plot(self):
         """Redraw the plot."""
 
-        # when xmin is on auto, it "follows" xmax to produce a
-        # sliding window effect. therefore, xmin is assigned after
-        # xmax.
-        #
-        if self.xmax_control.is_auto():
-            xmax = len(self.data) if len(self.data) > 50 else 50
-        else:
-            xmax = int(self.xmax_control.manual_value())
+        x_min, x_max = self.get_plot_xrange()
+        y_min, y_max = self.get_plot_yrange()
 
-        if self.xmin_control.is_auto():
-            xmin = xmax - 50
-        else:
-            xmin = int(self.xmin_control.manual_value())
+        self.axes.set_xbound(lower=x_min, upper=x_max)
+        self.axes.set_ybound(lower=y_min, upper=y_max)
 
-        # for ymin and ymax, find the minimal and maximal values
-        # in the data set and add a mininal margin.
-        #
-        # note that it's easy to change this scheme to the
-        # minimal/maximal value in the current display, and not
-        # the whole data set.
-        #
-        if self.ymin_control.is_auto():
-            ymin = round(min(self.data), 0) - 1
-        else:
-            ymin = int(self.ymin_control.manual_value())
+        self.axes.grid(self.grid_visibility_check_box.IsChecked())
 
-        if self.ymax_control.is_auto():
-            ymax = round(max(self.data), 0) + 1
-        else:
-            ymax = int(self.ymax_control.manual_value())
-
-        self.axes.set_xbound(lower=xmin, upper=xmax)
-        self.axes.set_ybound(lower=ymin, upper=ymax)
-
-        # anecdote: axes.grid assumes b=True if any other flag is
-        # given even if b is set to False.
-        # so just passing the flag into the first statement won't
-        # work.
-        #
-        if self.cb_grid.IsChecked():
-            self.axes.grid(True, color='gray')
-        else:
-            self.axes.grid(False)
-
-        # Using setp here is convenient, because get_xticklabels
-        # returns a list over which one needs to explicitly
-        # iterate, and setp already handles this.
-        #
+        # Set x-axis labels visibility
         plt.setp(
             self.axes.get_xticklabels(),
-            visible=self.cb_xlab.IsChecked()
+            visible=self.xlabels_visibility_check_box.IsChecked()
         )
 
         self.plot_data.set_xdata(np.arange(len(self.data)))
@@ -285,20 +292,20 @@ class GraphFrame(wx.Frame):
 
         self.canvas.draw()
 
-    def on_pause_button(self, event):
+    def on_pause_button_click(self, event):
         self.paused = not self.paused
 
-    def on_update_pause_button(self, event):
+    def on_pause_button_update(self, event):
         label = "Resume" if self.paused else "Pause"
         self.pause_button.SetLabel(label)
 
-    def on_cb_grid(self, event):
+    def on_grid_visibility_control_box_toggle(self, event):
         self.draw_plot()
 
-    def on_cb_xlab(self, event):
+    def on_xlabels_visibility_check_box_toggle(self, event):
         self.draw_plot()
 
-    def on_save_plot(self, event):
+    def on_plot_save(self, event):
         file_choices = "PNG (*.png)|*.png"
 
         dlg = wx.FileDialog(
@@ -307,36 +314,36 @@ class GraphFrame(wx.Frame):
             defaultDir=os.getcwd(),
             defaultFile="plot.png",
             wildcard=file_choices,
-            style=wx.FD_SAVE)
+            style=wx.FD_SAVE
+        )
 
         if dlg.ShowModal() == wx.ID_OK:
             path = dlg.GetPath()
-            self.canvas.print_figure(path, dpi=self.dpi)
-            self.flash_status_message("Saved to %s" % path)
+            self.canvas.print_figure(path, dpi=DPI)
+            self.flash_status_message("Saved to {}".format(path))
 
-    def on_redraw_timer(self, event):
-        # if paused do not add data, but still redraw the plot
-        # (to respond to scale modifications, grid change, etc.)
-        #
+    def on_plot_redraw(self, event):
+        """Get new value from data source if necessary and redraw the plot."""
         if not self.paused:
-            self.data.append(self.datagen.next())
+            self.data.append(self.data_source.next())
 
         self.draw_plot()
 
     def on_exit(self, event):
         self.Destroy()
 
-    def flash_status_message(self, msg, flash_len_ms=1500):
-        self.statusbar.SetStatusText(msg)
-        self.timeroff = wx.Timer(self)
+    def flash_status_message(self, message, display_time=1500):
+        self.status_bar.SetStatusText(message)
+        self.message_timer = wx.Timer(self)
         self.Bind(
             wx.EVT_TIMER,
             self.on_flash_status_off,
-            self.timeroff)
-        self.timeroff.Start(flash_len_ms, oneShot=True)
+            self.message_timer
+        )
+        self.message_timer.Start(display_time, oneShot=True)
 
     def on_flash_status_off(self, event):
-        self.statusbar.SetStatusText('')
+        self.status_bar.SetStatusText('')
 
 
 if __name__ == '__main__':
