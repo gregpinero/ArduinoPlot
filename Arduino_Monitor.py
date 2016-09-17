@@ -25,15 +25,19 @@ def receiving(ser):
 
 
 class SerialData(object):
-    def __init__(self):
+    def __init__(self, port, **kwargs):
+
+        baudrate = kwargs.get('baudrate', 9600)
+        timeout = kwargs.get('timeout', 0.1)
+
         try:
             self.ser = serial.Serial(
-                port='com4',
-                baudrate=9600,
+                port=port,
+                baudrate=baudrate,
                 bytesize=serial.EIGHTBITS,
                 parity=serial.PARITY_NONE,
                 stopbits=serial.STOPBITS_ONE,
-                timeout=0.1,
+                timeout=timeout,
                 xonxoff=0,
                 rtscts=0,
                 interCharTimeout=None
@@ -62,8 +66,9 @@ class SerialData(object):
         if self.ser:
             self.ser.close()
 
+
 if __name__ == '__main__':
-    s = SerialData()
+    s = SerialData('com4')
     for i in range(500):
         time.sleep(.015)
         print s.next()

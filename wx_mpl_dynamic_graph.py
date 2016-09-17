@@ -1,3 +1,5 @@
+#!/usr/bin/env python
+
 """
 This demo demonstrates how to draw a dynamic matplotlib plot in a wxPython
 application.
@@ -11,6 +13,8 @@ from the beginning.
 
 Note: press Enter in the 'manual' text box to make a new value affect the plot.
 """
+
+import argparse
 import os
 import wx
 import numpy as np
@@ -104,10 +108,10 @@ class GraphFrame(wx.Frame):
 
     title = 'Demo: dynamic matplotlib graph'
 
-    def __init__(self):
+    def __init__(self, data_source):
         wx.Frame.__init__(self, None, -1, self.title)
 
-        self.data_source = SerialData()
+        self.data_source = data_source
         self.data = [self.data_source.next()]
         self.paused = False
 
@@ -346,8 +350,25 @@ class GraphFrame(wx.Frame):
         self.status_bar.SetStatusText('')
 
 
-if __name__ == '__main__':
+def parse_script_args():
+    parser = argparse.ArgumentParser()
+
+    parser.add_argument("port", help="serial port to be used")
+    parser.add_argument("-b", "--baudrate", type=int, help="port baud rate")
+    parser.add_argument("-t", "--timeout", type=float,
+                        help="port timeout value")
+
+    args = parser.parse_args()
+
+    return {key: val for key, val in vars(args).iteritems() if val is not None}
+
+
+if __name__ == "__main__":
+
+    kwargs = parse_script_args()
+    data_source = SerialData(**kwargs)
+
     app = wx.App()
-    app.frame = GraphFrame()
+    app.frame = GraphFrame(data_source)
     app.frame.Show()
     app.MainLoop()
