@@ -10,11 +10,11 @@ import serial
 last_received = ''
 
 
-def receiving(ser):
+def receiving(serial_port):
     global last_received
     buffer = ''
     while True:
-        buffer = buffer + ser.read(ser.inWaiting())
+        buffer += serial_port.read_all()
         if '\n' in buffer:
             lines = buffer.split('\n')  # Guaranteed to have at least 2 entries
             last_received = lines[-2]
@@ -25,31 +25,18 @@ def receiving(ser):
 
 
 class SerialData(object):
-    def __init__(self, port, **kwargs):
 
-        baudrate = kwargs.get('baudrate', 9600)
-        timeout = kwargs.get('timeout', 0.1)
-
+    def __init__(self, **kwargs):
         try:
-            self.ser = serial.Serial(
-                port=port,
-                baudrate=baudrate,
-                bytesize=serial.EIGHTBITS,
-                parity=serial.PARITY_NONE,
-                stopbits=serial.STOPBITS_ONE,
-                timeout=timeout,
-                xonxoff=0,
-                rtscts=0,
-                interCharTimeout=None
-            )
+            self.serial_port = serial.Serial(**kwargs)
         except serial.serialutil.SerialException:
             # no serial connection
-            self.ser = None
+            self.serial_port = None
         else:
-            Thread(target=receiving, args=(self.ser,)).start()
+            Thread(target=receiving, args=(self.serial_port,)).start()
 
     def next(self):
-        if not self.ser:
+        if self.serial_port is None:
             # return anything so we can test when Arduino isn't connected
             return 100
         # return a float value or try a few times until we get one
@@ -63,8 +50,8 @@ class SerialData(object):
         return 0.
 
     def __del__(self):
-        if self.ser:
-            self.ser.close()
+        if self.serial_port is not None:
+            self.serial_port.close()
 
 
 if __name__ == '__main__':
