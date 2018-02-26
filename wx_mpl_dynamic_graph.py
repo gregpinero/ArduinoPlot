@@ -231,7 +231,7 @@ class GraphFrame(wx.Frame):
         self.figure = Figure((3.0, 3.0), dpi=DPI)
 
         self.axes = self.figure.add_subplot(111)
-        self.axes.set_axis_bgcolor('black')
+        self.axes.set_facecolor('black')
         self.axes.set_title('Arduino Serial Data', size=12)
         self.axes.grid(color='grey')
 
